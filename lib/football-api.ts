@@ -56,7 +56,6 @@ type FootballDataResponse = {
   matches: FootballDataMatch[]
 }
 
-// football-data.org sometimes uses slightly different names
 const NAME_MAP: Record<string, string> = {
   USA: 'United States',
   'United States of America': 'United States',
@@ -102,14 +101,21 @@ async function fetchWorldCupMatches(): Promise<FootballDataMatch[]> {
   return json.matches ?? []
 }
 
-function getMatchScore(match: FootballDataMatch): { homeGoals: number; awayGoals: number } {
+function getMatchScore(match: FootballDataMatch): {
+  homeGoals: number
+  awayGoals: number
+} {
   const regularHome = match.score.regularTime?.home
   const regularAway = match.score.regularTime?.away
   const extraHome = match.score.extraTime?.home ?? 0
   const extraAway = match.score.extraTime?.away ?? 0
 
-  // If regularTime exists, use regular + extra time and exclude penalties.
-  if (regularHome !== undefined && regularHome !== null && regularAway !== undefined && regularAway !== null) {
+  if (
+    regularHome !== undefined &&
+    regularHome !== null &&
+    regularAway !== undefined &&
+    regularAway !== null
+  ) {
     return {
       homeGoals: regularHome + extraHome,
       awayGoals: regularAway + extraAway,
@@ -274,10 +280,6 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
   }
 }
 
-/**
- * football-data.org's matches endpoint gives us scores, but not detailed
- * per-goal scorer events. So the timeline uses a simple score-based fallback.
- */
 function addFallbackGoalEvents(
   match: FootballDataMatch,
   home: string,
@@ -289,6 +291,8 @@ function addFallbackGoalEvents(
 ): void {
   if (homeGoals + awayGoals === 0) return
 
+  const eventTime = isLive ? new Date().toISOString() : match.utcDate
+
   const scorers: Array<{ team: string; goals: number }> = [
     { team: home, goals: homeGoals },
     { team: away, goals: awayGoals },
@@ -297,19 +301,21 @@ function addFallbackGoalEvents(
   for (const { team, goals } of scorers) {
     if (goals === 0) continue
 
-goalEvents.push({
-  id: `${match.id}-fallback-${team}`,
-  minute: isLive ? 0 : 90,
-  homeTeam: home,
-  awayTeam: away,
-  homeScore: homeGoals,
-  awayScore: awayGoals,
-  scoringTeam: team,
-  scorerName: `${team} goal update`,
-  matchTime: new Date().toISOString(),
-  affectedEntryIds: [],
-  isExtraTime: match.score.duration === 'EXTRA_TIME',
-})
+    goalEvents.push({
+      id: `${match.id}-fallback-${team}`,
+      minute: isLive ? 0 : 90,
+      homeTeam: home,
+      awayTeam: away,
+      homeScore: homeGoals,
+      awayScore: awayGoals,
+      scoringTeam: team,
+      scorerName: `${team} goal update`,
+      matchTime: eventTime,
+      affectedEntryIds: [],
+      isExtraTime: match.score.duration === 'EXTRA_TIME',
+    })
+  }
+}
 
 // ── Mock data fallback ─────────────────────────────────────────────────
 
