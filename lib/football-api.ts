@@ -78,6 +78,10 @@ const LIVE = new Set(['IN_PLAY', 'PAUSED'])
 const UPCOMING = new Set(['SCHEDULED', 'TIMED'])
 const CANCELLED = new Set(['POSTPONED', 'SUSPENDED', 'CANCELED', 'CANCELLED'])
 
+function isToday(date: Date, now: Date): boolean {
+  return date.toDateString() === now.toDateString()
+}
+
 async function fetchWorldCupMatches(): Promise<FootballDataMatch[]> {
   if (!API_KEY) {
     throw new Error('FOOTBALL_DATA_API_KEY is not configured')
@@ -157,7 +161,7 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
         awayTeam: away,
         kickoff: match.utcDate,
         isLive: false,
-        isToday: kickoff.toDateString() === now.toDateString(),
+        isToday: isToday(kickoff, now),
         sweepstakeTeams,
       })
 
@@ -182,7 +186,17 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
         sweepstakeTeams,
       })
 
-      addFallbackGoalEvents(match, home, away, goalEvents, homeGoals, awayGoals, true)
+      addFallbackGoalEvents({
+        match,
+        home,
+        away,
+        goalEvents,
+        homeGoals,
+        awayGoals,
+        isLive: true,
+        now,
+      })
+
       continue
     }
 
@@ -192,7 +206,16 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
       teamGoalMap.set(home, (teamGoalMap.get(home) ?? 0) + homeGoals)
       teamGoalMap.set(away, (teamGoalMap.get(away) ?? 0) + awayGoals)
 
-      addFallbackGoalEvents(match, home, away, goalEvents, homeGoals, awayGoals, false)
+      addFallbackGoalEvents({
+        match,
+        home,
+        away,
+        goalEvents,
+        homeGoals,
+        awayGoals,
+        isLive: false,
+        now,
+      })
     }
   }
 
@@ -253,9 +276,7 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
   const tournamentOver =
     tournamentStarted &&
     sortedUpcomingMatches.length === 0 &&
-    matches.every(
-      (match) => FINISHED.has(match.status) || CANCELLED.has(match.status)
-    )
+    matches.every((match) => FINISHED.has(match.status) || CANCELLED.has(match.status))
 
   const nextRefreshAt = liveMatchActive
     ? new Date(Date.now() + 5 * 60 * 1000).toISOString()
@@ -280,18 +301,33 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
   }
 }
 
-function addFallbackGoalEvents(
-  match: FootballDataMatch,
-  home: string,
-  away: string,
-  goalEvents: GoalEvent[],
-  homeGoals: number,
-  awayGoals: number,
+function addFallbackGoalEvents({
+  match,
+  home,
+  away,
+  goalEvents,
+  homeGoals,
+  awayGoals,
+  isLive,
+  now,
+}: {
+  match: FootballDataMatch
+  home: string
+  away: string
+  goalEvents: GoalEvent[]
+  homeGoals: number
+  awayGoals: number
   isLive: boolean
-): void {
+  now: Date
+}): void {
   if (homeGoals + awayGoals === 0) return
 
-  const eventTime = isLive ? new Date().toISOString() : match.utcDate
+  const kickoff = new Date(match.utcDate)
+
+  const eventTime =
+    isLive || isToday(kickoff, now)
+      ? now.toISOString()
+      : match.utcDate
 
   const scorers: Array<{ team: string; goals: number }> = [
     { team: home, goals: homeGoals },
