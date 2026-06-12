@@ -23,9 +23,7 @@ export async function GET(): Promise<NextResponse> {
       console.warn('FOOTBALL_DATA_API_KEY not configured. Using mock data.')
     }
 
-    const data = !hasKey
-      ? buildMockData()
-      : await buildSweepstakeData()
+    const data = !hasKey ? buildMockData() : await buildSweepstakeData()
 
     const ttl = selectTtl({
       liveMatchActive: data.liveMatchActive,
