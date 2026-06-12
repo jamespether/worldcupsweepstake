@@ -71,31 +71,3 @@ export interface ApiResponse {
   cachedAt?: string
   error?: string
 }
-
-// API-Football shapes
-export interface ApiFixture {
-  fixture: {
-    id: number
-    date: string
-    status: { short: string; elapsed: number | null }
-  }
-  teams: {
-    home: { id: number; name: string }
-    away: { id: number; name: string }
-  }
-  goals: { home: number | null; away: number | null }
-  score: {
-    fulltime:  { home: number | null; away: number | null }
-    extratime: { home: number | null; away: number | null }
-    penalty:   { home: number | null; away: number | null }
-  }
-  events?: ApiFixtureEvent[]
-}
-
-export interface ApiFixtureEvent {
-  time: { elapsed: number; extra: number | null }
-  team: { name: string }
-  player: { name: string }
-  type: 'Goal' | 'Card' | 'subst' | 'VAR'
-  detail: string
-}
