@@ -176,7 +176,7 @@ export default function SweepstakeClient() {
   const nextMatch  = data.upcomingMatches.find(m => !m.isLive)
   const liveMatch  = data.upcomingMatches.find(m => m.isLive)
   const maxGoals   = data.teamSummaries[0]?.goals || 1
-  const headlines  = generateHeadlines(data.entries)
+  const headlines  = generateHeadlines(data)
   const entryById  = new Map(data.entries.map(e => [e.id, e]))
 
   return (
