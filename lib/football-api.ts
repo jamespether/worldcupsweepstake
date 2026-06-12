@@ -1,14 +1,17 @@
 /**
- * Football data fetcher — football-data.org
+ * Football data fetcher — API-Football v3 (api-football.com / RapidAPI)
  *
- * Env vars:
- *   FOOTBALL_DATA_API_KEY    your football-data.org API key
+ * Env vars (set in .env.local and Vercel project settings):
+ *   FOOTBALL_API_KEY        your RapidAPI key
+ *   FOOTBALL_API_HOST       v3.football.api-sports.io
+ *   FOOTBALL_TOURNAMENT_ID  1  (FIFA World Cup — confirm at launch)
+ *   FOOTBALL_SEASON         2026
  *
- * Endpoint:
- *   https://api.football-data.org/v4/competitions/WC/matches
+ * In development with no FOOTBALL_API_KEY set, mock data is returned automatically.
  */
 
 import type {
+  ApiFixture,
   GoalEvent,
   SweepstakeData,
   SweepstakeEntry,
@@ -19,169 +22,116 @@ import rawEntries from '@/data/entries.json'
 import { getFlag } from '@/lib/flags'
 import { getStatus, sortEntries, buildTeamSummaries } from '@/lib/utils'
 
-type FootballDataTeam = {
-  id: number | null
-  name: string
-  shortName?: string
-  tla?: string
-  crest?: string
-}
+const API_KEY  = process.env.FOOTBALL_API_KEY ?? ''
+const API_HOST = process.env.FOOTBALL_API_HOST ?? 'v3.football.api-sports.io'
+const LEAGUE   = process.env.FOOTBALL_TOURNAMENT_ID ?? '1'
+const SEASON   = process.env.FOOTBALL_SEASON ?? '2026'
 
-type FootballDataScorePart = {
-  home: number | null
-  away: number | null
-}
-
-type FootballDataMatch = {
-  id: number
-  utcDate: string
-  status: string
-  homeTeam: FootballDataTeam
-  awayTeam: FootballDataTeam
-  score: {
-    winner: string | null
-    duration: string
-    fullTime: FootballDataScorePart
-    halfTime?: FootballDataScorePart
-    regularTime?: FootballDataScorePart
-    extraTime?: FootballDataScorePart
-    penalties?: FootballDataScorePart
-  }
-}
-
-type FootballDataResponse = {
-  matches: FootballDataMatch[]
-}
-
-const API_KEY = process.env.FOOTBALL_DATA_API_KEY ?? ''
-const API_URL = 'https://api.football-data.org/v4/competitions/WC/matches'
-
-// football-data.org names may differ slightly from your entries.json names
+// API-Football sometimes uses different names — normalise to our entries.json names
 const NAME_MAP: Record<string, string> = {
-  USA: 'United States',
-  'United States of America': 'United States',
-  'Korea Republic': 'South Korea',
-  'Korea, Republic of': 'South Korea',
-  'Congo DR': 'DR Congo',
+  'USA':                          'United States',
+  'United States of America':     'United States',
   'Democratic Republic of Congo': 'DR Congo',
-  'Côte d’Ivoire': 'Ivory Coast',
-  'Cote d’Ivoire': 'Ivory Coast',
-  'Côte d\'Ivoire': 'Ivory Coast',
+  'The Netherlands':              'Netherlands',
+  'Republic of Korea':            'South Korea',
 }
-
 function norm(name: string): string {
   return NAME_MAP[name] ?? name
 }
 
-const FINISHED = new Set(['FINISHED'])
-const LIVE = new Set(['IN_PLAY', 'PAUSED'])
-const UPCOMING = new Set(['SCHEDULED', 'TIMED'])
-const CANCELLED = new Set(['POSTPONED', 'SUSPENDED', 'CANCELED', 'CANCELLED'])
-
-async function fetchWorldCupMatches(): Promise<FootballDataMatch[]> {
-  if (!API_KEY) {
-    throw new Error('FOOTBALL_DATA_API_KEY is not configured')
-  }
-
-  const res = await fetch(API_URL, {
-    headers: {
-      'X-Auth-Token': API_KEY,
-    },
+async function apiFetch<T>(path: string): Promise<T> {
+  const url = `https://${API_HOST}${path}`
+  const res = await fetch(url, {
+    headers: { 'x-rapidapi-key': API_KEY, 'x-rapidapi-host': API_HOST },
     cache: 'no-store',
   })
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`football-data.org ${res.status}: ${body || 'Unable to fetch World Cup matches'}`)
-  }
-
-  const json = (await res.json()) as FootballDataResponse
-
-  return json.matches ?? []
+  if (!res.ok) throw new Error(`API-Football ${res.status}: ${path}`)
+  const json = await res.json()
+  return json.response as T
 }
+
+const FINISHED = new Set(['FT', 'AET', 'PEN', 'AWD'])
+const LIVE     = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'LIVE'])
+const UPCOMING = new Set(['NS', 'TBD'])
 
 export async function buildSweepstakeData(): Promise<SweepstakeData> {
-  const matches = await fetchWorldCupMatches()
-  return processMatches(matches)
+  const fixtures = await apiFetch<ApiFixture[]>(
+    `/fixtures?league=${LEAGUE}&season=${SEASON}`
+  )
+  return processFixtures(fixtures)
 }
 
-export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
+export function processFixtures(fixtures: ApiFixture[]): SweepstakeData {
   const teamGoalMap = new Map<string, number>()
   const goalEvents: GoalEvent[] = []
   const upcomingMatches: UpcomingMatch[] = []
   let liveMatchActive = false
-
   const now = new Date()
 
-  for (const match of matches) {
-    const status = match.status
-    const home = norm(match.homeTeam.name)
-    const away = norm(match.awayTeam.name)
-    const kickoff = new Date(match.utcDate)
-
-    const sweepstakeTeams = [home, away].filter((team) =>
-      rawEntries.some((entry) => entry.teams.includes(team))
-    )
+  for (const f of fixtures) {
+    const status = f.fixture.status.short
+    const home   = norm(f.teams.home.name)
+    const away   = norm(f.teams.away.name)
+    const kickoff = new Date(f.fixture.date)
 
     if (UPCOMING.has(status) && kickoff > now) {
+      const isToday = kickoff.toDateString() === now.toDateString()
+      const sweepstakeTeams = [home, away].filter(t =>
+        rawEntries.some(e => e.teams.includes(t))
+      )
       upcomingMatches.push({
-        id: String(match.id),
-        homeTeam: home,
-        awayTeam: away,
-        kickoff: match.utcDate,
-        isLive: false,
-        isToday: kickoff.toDateString() === now.toDateString(),
-        sweepstakeTeams,
+        id: String(f.fixture.id),
+        homeTeam: home, awayTeam: away,
+        kickoff: f.fixture.date,
+        isLive: false, isToday, sweepstakeTeams,
       })
-
       continue
     }
 
     if (LIVE.has(status)) {
       liveMatchActive = true
-
-      const homeGoals = match.score.fullTime.home ?? 0
-      const awayGoals = match.score.fullTime.away ?? 0
-
-      teamGoalMap.set(home, (teamGoalMap.get(home) ?? 0) + homeGoals)
-      teamGoalMap.set(away, (teamGoalMap.get(away) ?? 0) + awayGoals)
-
+      const hg = f.goals.home ?? 0
+      const ag = f.goals.away ?? 0
+      teamGoalMap.set(home, (teamGoalMap.get(home) ?? 0) + hg)
+      teamGoalMap.set(away, (teamGoalMap.get(away) ?? 0) + ag)
+      const sweepstakeTeams = [home, away].filter(t =>
+        rawEntries.some(e => e.teams.includes(t))
+      )
       upcomingMatches.unshift({
-        id: String(match.id),
-        homeTeam: home,
-        awayTeam: away,
-        kickoff: match.utcDate,
-        isLive: true,
-        isToday: true,
-        sweepstakeTeams,
+        id: String(f.fixture.id),
+        homeTeam: home, awayTeam: away,
+        kickoff: f.fixture.date,
+        isLive: true, isToday: true, sweepstakeTeams,
       })
-
+      addGoalEvents(f, home, away, goalEvents, status, hg, ag)
       continue
     }
 
     if (FINISHED.has(status)) {
-      const homeGoals = match.score.fullTime.home ?? 0
-      const awayGoals = match.score.fullTime.away ?? 0
-
-      teamGoalMap.set(home, (teamGoalMap.get(home) ?? 0) + homeGoals)
-      teamGoalMap.set(away, (teamGoalMap.get(away) ?? 0) + awayGoals)
+      // For PEN: use AET score (excludes shootout)
+      let hg: number, ag: number
+      if (status === 'PEN') {
+        hg = f.score.extratime.home ?? f.score.fulltime.home ?? 0
+        ag = f.score.extratime.away ?? f.score.fulltime.away ?? 0
+      } else {
+        hg = (f.score.fulltime.home ?? 0) + (f.score.extratime.home ?? 0)
+        ag = (f.score.fulltime.away ?? 0) + (f.score.extratime.away ?? 0)
+      }
+      teamGoalMap.set(home, (teamGoalMap.get(home) ?? 0) + hg)
+      teamGoalMap.set(away, (teamGoalMap.get(away) ?? 0) + ag)
+      addGoalEvents(f, home, away, goalEvents, status, hg, ag)
     }
   }
 
-  const rawBuilt: SweepstakeEntry[] = rawEntries.map((raw, index) => {
-    const teams: TeamGoals[] = raw.teams.map((team) => ({
-      name: team,
-      flag: getFlag(team),
-      goals: teamGoalMap.get(team) ?? 0,
+  // Build entries
+  const rawBuilt: SweepstakeEntry[] = rawEntries.map((raw, i) => {
+    const teams: TeamGoals[] = raw.teams.map(t => ({
+      name: t, flag: getFlag(t), goals: teamGoalMap.get(t) ?? 0,
     }))
-
-    const total = teams.reduce((sum, team) => sum + team.goals, 0)
-
+    const total = teams.reduce((s, t) => s + t.goals, 0)
     return {
-      id: `${raw.name.toLowerCase()}-${index}`,
-      name: raw.name,
-      teams,
-      total,
+      id: `${raw.name.toLowerCase()}-${i}`,
+      name: raw.name, teams, total,
       remaining: Math.max(0, 22 - total),
       status: getStatus(total),
       rank: 0,
@@ -189,96 +139,136 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
   })
 
   const entries = sortEntries(rawBuilt)
-  const teamSummaries = buildTeamSummaries(entries)
-  const totalGoalsScored = [...teamGoalMap.values()].reduce((sum, goals) => sum + goals, 0)
 
-  const sortedUpcomingMatches = upcomingMatches.sort((a, b) => {
+  // Wire up affected entries on goal events
+  const byTeam = new Map<string, string[]>()
+  for (const e of entries) {
+    for (const t of e.teams) {
+      if (!byTeam.has(t.name)) byTeam.set(t.name, [])
+      byTeam.get(t.name)!.push(e.id)
+    }
+  }
+  for (const ev of goalEvents) {
+    ev.affectedEntryIds = byTeam.get(ev.scoringTeam) ?? []
+  }
+
+  const teamSummaries = buildTeamSummaries(entries)
+  const totalGoalsScored = [...teamGoalMap.values()].reduce((s, g) => s + g, 0)
+
+  const sorted = upcomingMatches.sort((a, b) => {
     if (a.isLive && !b.isLive) return -1
     if (!a.isLive && b.isLive) return 1
-
     return new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()
   })
 
-  const hasMatchToday = sortedUpcomingMatches.some((match) => match.isToday)
-
-  const tournamentStarted = matches.some(
-    (match) => FINISHED.has(match.status) || LIVE.has(match.status)
-  )
-
+  const hasMatchToday = sorted.some(m => m.isToday)
   const tournamentOver =
-    tournamentStarted &&
-    sortedUpcomingMatches.length === 0 &&
-    matches.every(
-      (match) => FINISHED.has(match.status) || CANCELLED.has(match.status)
-    )
+    sorted.length === 0 &&
+    fixtures.every(f => FINISHED.has(f.fixture.status.short) ||
+      ['PST', 'CANC'].includes(f.fixture.status.short))
 
   const nextRefreshAt = liveMatchActive
     ? new Date(Date.now() + 5 * 60 * 1000).toISOString()
     : hasMatchToday
-      ? new Date(Date.now() + 30 * 60 * 1000).toISOString()
-      : tournamentOver
-        ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-        : new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()
+    ? new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    : new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()
 
   return {
     entries,
-    goalFeed: goalEvents,
-    upcomingMatches: sortedUpcomingMatches.slice(0, 10),
+    goalFeed: goalEvents
+      .sort((a, b) => new Date(b.matchTime).getTime() - new Date(a.matchTime).getTime())
+      .slice(0, 20),
+    upcomingMatches: sorted.slice(0, 10),
     teamSummaries,
     totalGoalsScored,
     lastUpdated: new Date().toISOString(),
     nextRefreshAt,
-    tournamentStarted,
+    tournamentStarted: fixtures.some(f => FINISHED.has(f.fixture.status.short)),
     liveMatchActive,
   }
 }
 
-// ── Mock data fallback ─────────────────────────────────────────────────
-
-export function buildMockData(): SweepstakeData {
-  const mockGoals: Record<string, number> = {
-    Portugal: 8,
-    Brazil: 7,
-    Argentina: 7,
-    England: 6,
-    Spain: 5,
-    Netherlands: 5,
-    Germany: 4,
-    Japan: 4,
-    France: 4,
-    'United States': 3,
-    Mexico: 3,
-    Belgium: 3,
-    Uruguay: 2,
-    Switzerland: 2,
-    Morocco: 2,
-    Austria: 2,
-    Ecuador: 1,
-    Senegal: 1,
-    Norway: 1,
-    Canada: 1,
-    Croatia: 1,
-    'DR Congo': 0,
-    Panama: 0,
-    'South Africa': 0,
-    Haiti: 0,
-    'New Zealand': 0,
+function addGoalEvents(
+  f: ApiFixture,
+  home: string,
+  away: string,
+  goalEvents: GoalEvent[],
+  status: string,
+  hg: number,
+  ag: number,
+): void {
+  // ── Primary path: per-goal events from the API ────────────────────────────
+  if (f.events && f.events.length > 0) {
+    for (const ev of f.events) {
+      if (ev.type !== 'Goal') continue
+      if (ev.detail === 'Missed Penalty') continue
+      // Skip shootout goals (PEN status + elapsed > 120)
+      if (status === 'PEN' && (ev.time.elapsed ?? 0) > 120) continue
+      const scoringTeam = norm(ev.team.name)
+      goalEvents.push({
+        id: `${f.fixture.id}-${ev.time.elapsed}-${ev.player.name}`,
+        minute: ev.time.elapsed,
+        homeTeam: home, awayTeam: away,
+        homeScore: f.goals.home ?? 0,
+        awayScore: f.goals.away ?? 0,
+        scoringTeam,
+        scorerName: ev.player.name,
+        matchTime: f.fixture.date,
+        affectedEntryIds: [],
+        isExtraTime: (ev.time.elapsed ?? 0) > 90,
+      })
+    }
+    return
   }
 
-  const rawBuilt: SweepstakeEntry[] = rawEntries.map((raw, index) => {
-    const teams: TeamGoals[] = raw.teams.map((team) => ({
-      name: team,
-      flag: getFlag(team),
-      goals: mockGoals[team] ?? 0,
+  // ── Fallback path: f.events missing or empty (e.g. free-tier API) ─────────
+  // Create one summary GoalEvent per team that scored, derived from the
+  // pre-computed hg/ag values (already excluding shootout goals).
+  // affectedEntryIds is populated by the caller after entries are built.
+  if (hg + ag === 0) return
+
+  const isAet = status === 'AET' || status === 'PEN'
+
+  const scorers: Array<{ team: string; goals: number }> = [
+    { team: home, goals: hg },
+    { team: away, goals: ag },
+  ]
+
+  for (const { team, goals } of scorers) {
+    if (goals === 0) continue
+    goalEvents.push({
+      id: `${f.fixture.id}-fallback-${team}`,
+      minute: isAet ? 120 : 90,
+      homeTeam: home, awayTeam: away,
+      homeScore: hg,
+      awayScore: ag,
+      scoringTeam: team,
+      // scorerName intentionally omitted — not available without events
+      matchTime: f.fixture.date,
+      affectedEntryIds: [],
+      isExtraTime: isAet,
+    })
+  }
+}
+
+// ── Mock data (used in dev when no API key is set) ─────────────────────
+export function buildMockData(): SweepstakeData {
+  const mockGoals: Record<string, number> = {
+    'Portugal': 8, 'Brazil': 7, 'England': 6, 'Spain': 5, 'Netherlands': 5,
+    'Germany': 4, 'Japan': 4, 'United States': 3, 'Mexico': 3, 'Belgium': 3,
+    'Uruguay': 2, 'Switzerland': 2, 'Morocco': 2, 'Austria': 2,
+    'Ecuador': 1, 'Senegal': 1, 'Norway': 1, 'Canada': 1, 'Croatia': 1,
+    'DR Congo': 0, 'Panama': 0, 'South Africa': 0, 'Haiti': 0, 'New Zealand': 0,
+  }
+
+  const rawBuilt: SweepstakeEntry[] = rawEntries.map((raw, i) => {
+    const teams: TeamGoals[] = raw.teams.map(t => ({
+      name: t, flag: getFlag(t), goals: mockGoals[t] ?? 0,
     }))
-
-    const total = teams.reduce((sum, team) => sum + team.goals, 0)
-
+    const total = teams.reduce((s, t) => s + t.goals, 0)
     return {
-      id: `${raw.name.toLowerCase()}-${index}`,
-      name: raw.name,
-      teams,
-      total,
+      id: `${raw.name.toLowerCase()}-${i}`,
+      name: raw.name, teams, total,
       remaining: Math.max(0, 22 - total),
       status: getStatus(total),
       rank: 0,
@@ -287,74 +277,45 @@ export function buildMockData(): SweepstakeData {
 
   const entries = sortEntries(rawBuilt)
   const teamSummaries = buildTeamSummaries(entries)
-  const totalGoalsScored = Object.values(mockGoals).reduce((sum, goals) => sum + goals, 0)
+  const totalGoalsScored = Object.values(mockGoals).reduce((s, g) => s + g, 0)
 
   const mockGoalFeed: GoalEvent[] = [
     {
-      id: 'mock-1',
-      minute: 73,
-      homeTeam: 'Portugal',
-      awayTeam: 'Mexico',
-      homeScore: 3,
-      awayScore: 1,
-      scoringTeam: 'Portugal',
-      scorerName: 'Bruno Fernandes',
+      id: 'mock-1', minute: 73,
+      homeTeam: 'Portugal', awayTeam: 'Mexico', homeScore: 3, awayScore: 1,
+      scoringTeam: 'Portugal', scorerName: 'Bruno Fernandes',
       matchTime: new Date(Date.now() - 2 * 3600_000).toISOString(),
-      affectedEntryIds: entries
-        .filter((entry) => entry.teams.some((team) => team.name === 'Portugal'))
-        .map((entry) => entry.id),
+      affectedEntryIds: entries.filter(e => e.teams.some(t => t.name === 'Portugal')).map(e => e.id),
       isExtraTime: false,
     },
     {
-      id: 'mock-2',
-      minute: 45,
-      homeTeam: 'Brazil',
-      awayTeam: 'Canada',
-      homeScore: 3,
-      awayScore: 0,
-      scoringTeam: 'Brazil',
-      scorerName: 'Vinicius Jr',
+      id: 'mock-2', minute: 45,
+      homeTeam: 'Brazil', awayTeam: 'Canada', homeScore: 3, awayScore: 0,
+      scoringTeam: 'Brazil', scorerName: 'Vinicius Jr',
       matchTime: new Date(Date.now() - 5 * 3600_000).toISOString(),
-      affectedEntryIds: entries
-        .filter((entry) => entry.teams.some((team) => team.name === 'Brazil'))
-        .map((entry) => entry.id),
+      affectedEntryIds: entries.filter(e => e.teams.some(t => t.name === 'Brazil')).map(e => e.id),
       isExtraTime: false,
     },
     {
-      id: 'mock-3',
-      minute: 67,
-      homeTeam: 'England',
-      awayTeam: 'Belgium',
-      homeScore: 2,
-      awayScore: 1,
-      scoringTeam: 'England',
-      scorerName: 'Bellingham',
+      id: 'mock-3', minute: 67,
+      homeTeam: 'England', awayTeam: 'Belgium', homeScore: 2, awayScore: 1,
+      scoringTeam: 'England', scorerName: 'Bellingham',
       matchTime: new Date(Date.now() - 18 * 3600_000).toISOString(),
-      affectedEntryIds: entries
-        .filter((entry) => entry.teams.some((team) => team.name === 'England'))
-        .map((entry) => entry.id),
+      affectedEntryIds: entries.filter(e => e.teams.some(t => t.name === 'England')).map(e => e.id),
       isExtraTime: false,
     },
   ]
 
   const mockUpcoming: UpcomingMatch[] = [
     {
-      id: 'up-1',
-      homeTeam: 'England',
-      awayTeam: 'Spain',
+      id: 'up-1', homeTeam: 'England', awayTeam: 'Spain',
       kickoff: new Date(Date.now() + 2 * 3600_000).toISOString(),
-      isLive: false,
-      isToday: true,
-      sweepstakeTeams: ['England', 'Spain'],
+      isLive: false, isToday: true, sweepstakeTeams: ['England', 'Spain'],
     },
     {
-      id: 'up-2',
-      homeTeam: 'Brazil',
-      awayTeam: 'Argentina',
+      id: 'up-2', homeTeam: 'Brazil', awayTeam: 'Argentina',
       kickoff: new Date(Date.now() + 26 * 3600_000).toISOString(),
-      isLive: false,
-      isToday: false,
-      sweepstakeTeams: ['Brazil', 'Argentina'],
+      isLive: false, isToday: false, sweepstakeTeams: ['Brazil'],
     },
   ]
 
