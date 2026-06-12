@@ -1,0 +1,29 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+:root {
+  --ink:      #0E0E0E;
+  --ink2:     #1A1A1A;
+  --ink3:     #242424;
+  --rule:     #2E2E2E;
+  --rule2:    #383838;
+  --muted:    #666;
+  --dim:      #444;
+  --text:     #F2EFEA;
+  --text2:    #B0ADA8;
+  --pitch:    #1A6B35;
+  --pitch-lt: #22873E;
+  --amber:    #C8860A;
+  --red:      #C0392B;
+  --red-bg:   #1C0808;
+}
+
+body {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  background: var(--ink);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
