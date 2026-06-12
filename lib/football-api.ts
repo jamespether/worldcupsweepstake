@@ -171,7 +171,6 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
 
       teamGoalMap.set(home, (teamGoalMap.get(home) ?? 0) + homeGoals)
       teamGoalMap.set(away, (teamGoalMap.get(away) ?? 0) + awayGoals)
-      addFallbackGoalEvents(match, home, away, goalEvents, homeGoals, awayGoals, true)
 
       upcomingMatches.unshift({
         id: String(match.id),
@@ -319,42 +318,7 @@ function addFallbackGoalEvents(
 }
 
 // ── Mock data fallback ─────────────────────────────────────────────────
-function addFallbackGoalEvents(
-  match: FootballDataMatch,
-  home: string,
-  away: string,
-  goalEvents: GoalEvent[],
-  homeGoals: number,
-  awayGoals: number,
-  isLive: boolean
-): void {
-  if (homeGoals + awayGoals === 0) return
 
-  const eventTime = isLive ? new Date().toISOString() : match.utcDate
-
-  const scorers: Array<{ team: string; goals: number }> = [
-    { team: home, goals: homeGoals },
-    { team: away, goals: awayGoals },
-  ]
-
-  for (const { team, goals } of scorers) {
-    if (goals === 0) continue
-
-    goalEvents.push({
-      id: `${match.id}-fallback-${team}`,
-      minute: isLive ? 0 : 90,
-      homeTeam: home,
-      awayTeam: away,
-      homeScore: homeGoals,
-      awayScore: awayGoals,
-      scoringTeam: team,
-      scorerName: `${team} goal update`,
-      matchTime: eventTime,
-      affectedEntryIds: [],
-      isExtraTime: match.score.duration === 'EXTRA_TIME',
-    })
-  }
-}
 export function buildMockData(): SweepstakeData {
   const mockGoals: Record<string, number> = {
     Portugal: 8,
