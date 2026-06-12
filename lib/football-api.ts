@@ -297,21 +297,19 @@ function addFallbackGoalEvents(
   for (const { team, goals } of scorers) {
     if (goals === 0) continue
 
-    goalEvents.push({
-      id: `${match.id}-fallback-${team}`,
-      minute: isLive ? 0 : 90,
-      homeTeam: home,
-      awayTeam: away,
-      homeScore: homeGoals,
-      awayScore: awayGoals,
-      scoringTeam: team,
-      scorerName: `${team} goal update`,
-      matchTime: match.utcDate,
-      affectedEntryIds: [],
-      isExtraTime: match.score.duration === 'EXTRA_TIME',
-    })
-  }
-}
+goalEvents.push({
+  id: `${match.id}-fallback-${team}`,
+  minute: isLive ? 0 : 90,
+  homeTeam: home,
+  awayTeam: away,
+  homeScore: homeGoals,
+  awayScore: awayGoals,
+  scoringTeam: team,
+  scorerName: `${team} goal update`,
+  matchTime: new Date().toISOString(),
+  affectedEntryIds: [],
+  isExtraTime: match.score.duration === 'EXTRA_TIME',
+})
 
 // ── Mock data fallback ─────────────────────────────────────────────────
 
