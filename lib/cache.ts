@@ -1,17 +1,3 @@
-/**
- * In-memory cache for sweepstake data.
- *
- * UPGRADE TO VERCEL KV (for persistence across cold starts):
- *   npm install @vercel/kv
- *   Then replace get/set below with:
- *
- *   import { kv } from '@vercel/kv'
- *   export async function getCached() { return kv.get<SweepstakeData>('sweepstake') }
- *   export async function setCached(d: SweepstakeData, ttlMs: number) {
- *     await kv.set('sweepstake', d, { ex: Math.floor(ttlMs / 1000) })
- *   }
- */
-
 import type { SweepstakeData } from '@/types/sweepstake'
 
 interface CacheEntry {
@@ -20,14 +6,13 @@ interface CacheEntry {
   ttlMs: number
 }
 
-// Module-level — lives for the lifetime of the serverless instance
 let cache: CacheEntry | null = null
 
 export const TTL = {
-  NO_MATCH:        6 * 60 * 60 * 1000,  // 6 hours
-  MATCH_DAY:      30 * 60 * 1000,        // 30 minutes
-  LIVE:            5 * 60 * 1000,        // 5 minutes
-  POST_TOURNAMENT: 6 * 60 * 60 * 1000,  // 6 hours
+  NO_MATCH: 6 * 60 * 60 * 1000,
+  MATCH_DAY: 30 * 60 * 1000,
+  LIVE: 5 * 60 * 1000,
+  POST_TOURNAMENT: 6 * 60 * 60 * 1000,
 }
 
 export function getCached(): SweepstakeData | null {
@@ -41,7 +26,11 @@ export function getStale(): SweepstakeData | null {
 }
 
 export function setCached(data: SweepstakeData, ttlMs: number): void {
-  cache = { data, fetchedAt: Date.now(), ttlMs }
+  cache = {
+    data,
+    fetchedAt: Date.now(),
+    ttlMs,
+  }
 }
 
 export function getCachedAt(): string | null {
@@ -53,8 +42,8 @@ export function selectTtl(opts: {
   hasMatchToday: boolean
   tournamentOver: boolean
 }): number {
-  if (opts.tournamentOver)   return TTL.POST_TOURNAMENT
-  if (opts.liveMatchActive)  return TTL.LIVE
-  if (opts.hasMatchToday)    return TTL.MATCH_DAY
+  if (opts.tournamentOver) return TTL.POST_TOURNAMENT
+  if (opts.liveMatchActive) return TTL.LIVE
+  if (opts.hasMatchToday) return TTL.MATCH_DAY
   return TTL.NO_MATCH
 }

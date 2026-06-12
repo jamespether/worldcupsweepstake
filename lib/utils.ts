@@ -5,13 +5,18 @@ export const MAX_GOALS = 21
 
 export function getStatus(goals: number): EntryStatus {
   if (goals >= BUST_AT) return 'bust'
-  if (goals >= 19)      return 'danger'
-  if (goals >= 15)      return 'warning'
+  if (goals >= 19) return 'danger'
+  if (goals >= 15) return 'warning'
   return 'safe'
 }
 
-export function statusLabel(s: EntryStatus) {
-  return { safe: 'Safe', warning: 'Warning', danger: 'Danger', bust: 'Bust' }[s]
+export function statusLabel(status: EntryStatus | string): string {
+  return {
+    safe: 'Safe',
+    warning: 'Warning',
+    danger: 'Danger',
+    bust: 'Bust',
+  }[status] ?? status
 }
 
 export function goalPct(total: number): number {
@@ -20,14 +25,14 @@ export function goalPct(total: number): number {
 
 export function sortEntries(entries: SweepstakeEntry[]): SweepstakeEntry[] {
   const active = entries
-    .filter(e => e.status !== 'bust')
+    .filter((entry) => entry.status !== 'bust')
     .sort((a, b) => a.total - b.total)
-    .map((e, i) => ({ ...e, rank: i + 1 }))
+    .map((entry, index) => ({ ...entry, rank: index + 1 }))
 
   const busted = entries
-    .filter(e => e.status === 'bust')
+    .filter((entry) => entry.status === 'bust')
     .sort((a, b) => b.total - a.total)
-    .map(e => ({ ...e, rank: 0 }))
+    .map((entry) => ({ ...entry, rank: 0 }))
 
   return [...active, ...busted]
 }
@@ -36,15 +41,23 @@ export function buildTeamSummaries(entries: SweepstakeEntry[]): TeamSummary[] {
   const map = new Map<string, TeamSummary>()
 
   for (const entry of entries) {
-    for (const t of entry.teams) {
-      if (!map.has(t.name)) {
-        map.set(t.name, { name: t.name, flag: t.flag, goals: t.goals, ownerIds: [], ownerNames: [] })
+    for (const team of entry.teams) {
+      if (!map.has(team.name)) {
+        map.set(team.name, {
+          name: team.name,
+          flag: team.flag,
+          goals: team.goals,
+          ownerIds: [],
+          ownerNames: [],
+        })
       }
-      const s = map.get(t.name)!
-      s.goals = Math.max(s.goals, t.goals)
-      if (!s.ownerIds.includes(entry.id)) {
-        s.ownerIds.push(entry.id)
-        s.ownerNames.push(entry.name)
+
+      const summary = map.get(team.name)!
+      summary.goals = Math.max(summary.goals, team.goals)
+
+      if (!summary.ownerIds.includes(entry.id)) {
+        summary.ownerIds.push(entry.id)
+        summary.ownerNames.push(entry.name)
       }
     }
   }
@@ -53,56 +66,70 @@ export function buildTeamSummaries(entries: SweepstakeEntry[]): TeamSummary[] {
 }
 
 export function generateHeadlines(entries: SweepstakeEntry[]): string[] {
-  const active = entries.filter(e => e.status !== 'bust')
-  const busted = entries.filter(e => e.status === 'bust')
+  const active = entries.filter((entry) => entry.status !== 'bust')
+  const busted = entries.filter((entry) => entry.status === 'bust')
   const byRisk = [...active].sort((a, b) => b.total - a.total)
-  const hs: string[] = []
+  const headlines: string[] = []
 
   const top = byRisk[0]
+
   if (top && top.total >= 17) {
-    const r = BUST_AT - top.total
-    hs.push(r <= 2
-      ? `${top.name} is somehow still alive. For now.`
-      : `${top.name} is ${r} goals from going home.`)
+    const remaining = BUST_AT - top.total
+    headlines.push(
+      remaining <= 2
+        ? `${top.name} is somehow still alive. For now.`
+        : `${top.name} is ${remaining} goals from going home.`
+    )
   }
 
   let worst: { team: string; goals: number; who: string } | null = null
-  for (const e of active) {
-    for (const t of e.teams) {
-      if (!worst || t.goals > worst.goals) worst = { team: t.name, goals: t.goals, who: e.name }
+
+  for (const entry of active) {
+    for (const team of entry.teams) {
+      if (!worst || team.goals > worst.goals) {
+        worst = { team: team.name, goals: team.goals, who: entry.name }
+      }
     }
   }
+
   if (worst && worst.goals >= 4) {
-    hs.push(`${worst.team} have already cost ${worst.who} ${worst.goals} goals.`)
+    headlines.push(`${worst.team} have already cost ${worst.who} ${worst.goals} goals.`)
   }
 
   const safest = [...active].sort((a, b) => a.total - b.total)[0]
+
   if (safest && safest.total <= 6) {
-    hs.push(`${safest.name} hasn't broken a sweat. ${safest.total} goals. Smugly calm.`)
+    headlines.push(`${safest.name} hasn't broken a sweat. ${safest.total} goals. Smugly calm.`)
   } else if (safest) {
-    hs.push(`${safest.name} looks comfortable on ${safest.total}. For now.`)
+    headlines.push(`${safest.name} looks comfortable on ${safest.total}. For now.`)
   }
 
   if (busted.length) {
     const latest = busted[busted.length - 1]
-    hs.push(`${latest.name} is out. ${latest.total} goals. Finished.`)
+    headlines.push(`${latest.name} is out. ${latest.total} goals. Finished.`)
   }
 
-  return hs.slice(0, 3)
+  return headlines.slice(0, 3)
 }
 
 export function formatRelative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diffMs / 60_000)
-  if (mins < 1)  return 'just now'
+
+  if (mins < 1) return 'just now'
   if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24)  return `${hrs}h ago`
+
+  const hours = Math.floor(mins / 60)
+
+  if (hours < 24) return `${hours}h ago`
+
   return 'Yesterday'
 }
 
 export function formatKickoff(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/London',
   })
 }

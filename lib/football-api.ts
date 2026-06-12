@@ -1,13 +1,3 @@
-/**
- * Football data fetcher — football-data.org
- *
- * Env var:
- *   FOOTBALL_DATA_API_KEY
- *
- * Endpoint:
- *   https://api.football-data.org/v4/competitions/WC/matches
- */
-
 import type {
   GoalEvent,
   SweepstakeData,
@@ -69,14 +59,14 @@ const NAME_MAP: Record<string, string> = {
   'Cote d’Ivoire': 'Ivory Coast',
 }
 
-function norm(name: string): string {
-  return NAME_MAP[name] ?? name
-}
-
 const FINISHED = new Set(['FINISHED'])
 const LIVE = new Set(['IN_PLAY', 'PAUSED'])
 const UPCOMING = new Set(['SCHEDULED', 'TIMED'])
 const CANCELLED = new Set(['POSTPONED', 'SUSPENDED', 'CANCELED', 'CANCELLED'])
+
+function norm(name: string): string {
+  return NAME_MAP[name] ?? name
+}
 
 function isToday(date: Date, now: Date): boolean {
   return date.toDateString() === now.toDateString()
@@ -240,7 +230,6 @@ export function processMatches(matches: FootballDataMatch[]): SweepstakeData {
   })
 
   const entries = sortEntries(rawBuilt)
-
   const byTeam = new Map<string, string[]>()
 
   for (const entry of entries) {
@@ -353,8 +342,6 @@ function addFallbackGoalEvents({
   }
 }
 
-// ── Mock data fallback ─────────────────────────────────────────────────
-
 export function buildMockData(): SweepstakeData {
   const mockGoals: Record<string, number> = {
     Portugal: 8,
@@ -425,36 +412,6 @@ export function buildMockData(): SweepstakeData {
         .map((entry) => entry.id),
       isExtraTime: false,
     },
-    {
-      id: 'mock-2',
-      minute: 45,
-      homeTeam: 'Brazil',
-      awayTeam: 'Canada',
-      homeScore: 3,
-      awayScore: 0,
-      scoringTeam: 'Brazil',
-      scorerName: 'Vinicius Jr',
-      matchTime: new Date(Date.now() - 5 * 3600_000).toISOString(),
-      affectedEntryIds: entries
-        .filter((entry) => entry.teams.some((team) => team.name === 'Brazil'))
-        .map((entry) => entry.id),
-      isExtraTime: false,
-    },
-    {
-      id: 'mock-3',
-      minute: 67,
-      homeTeam: 'England',
-      awayTeam: 'Belgium',
-      homeScore: 2,
-      awayScore: 1,
-      scoringTeam: 'England',
-      scorerName: 'Bellingham',
-      matchTime: new Date(Date.now() - 18 * 3600_000).toISOString(),
-      affectedEntryIds: entries
-        .filter((entry) => entry.teams.some((team) => team.name === 'England'))
-        .map((entry) => entry.id),
-      isExtraTime: false,
-    },
   ]
 
   const mockUpcoming: UpcomingMatch[] = [
@@ -466,15 +423,6 @@ export function buildMockData(): SweepstakeData {
       isLive: false,
       isToday: true,
       sweepstakeTeams: ['England', 'Spain'],
-    },
-    {
-      id: 'up-2',
-      homeTeam: 'Brazil',
-      awayTeam: 'Argentina',
-      kickoff: new Date(Date.now() + 26 * 3600_000).toISOString(),
-      isLive: false,
-      isToday: false,
-      sweepstakeTeams: ['Brazil', 'Argentina'],
     },
   ]
 
